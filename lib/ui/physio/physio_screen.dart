@@ -1,9 +1,9 @@
-import 'dart:io';
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:google_mlkit_pose_detection/google_mlkit_pose_detection.dart';
 import 'package:navilens_local/camera/camera_view.dart';
 import 'package:navilens_local/ai/physio_engine.dart';
+import 'package:navilens_local/ai/pose_service.dart';
 import 'package:navilens_local/accessibility/feedback_engine.dart';
 import 'package:navilens_local/main.dart';
 

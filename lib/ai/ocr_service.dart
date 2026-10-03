@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
 import 'models.dart';
 import 'safety_engine.dart';
@@ -11,29 +12,39 @@ class OcrService {
       final rawInfo = _extractMedicineData(recognizedText.text);
       return SafetyEngine.validateMedicineExtraction(rawInfo);
     } catch (e) {
-      print('OCR Error: $e');
+      debugPrint('OCR Error: $e');
       return null;
     }
   }
 
   MedicineInfo _extractMedicineData(String rawText) {
-    // Basic heuristics to extract data from raw text
-    final lines = rawText.split('\n');
-    
     String? name;
     String? strength;
     String? expiryDate;
     
-    // Very basic extraction logic for MVP
+    final lines = rawText.split('\n');
+    
+    // Regex for dosage (e.g. 500mg, 500 mg, 5ml)
+    final strengthRegex = RegExp(r'\b(\d+(?:\.\d+)?)\s*(mg|ml|g|mcg|iu)\b', caseSensitive: false);
+    // Regex for expiry (e.g. EXP 12/27, EXP: 12/2027, Expiry: 12/2027)
+    final expiryRegex = RegExp(r'(?i)(?:exp(?:iry)?|use\s*by)[\s:]*(\d{1,2}[/\-]\d{2,4})');
+
     for (String line in lines) {
-      final upper = line.toUpperCase();
-      if (upper.contains('MG') || upper.contains('ML')) {
-        strength = line;
+      if (strength == null) {
+        final match = strengthRegex.firstMatch(line);
+        if (match != null) {
+          strength = '${match.group(1)} ${match.group(2)!.toLowerCase()}';
+        }
       }
-      if (upper.contains('EXP') || upper.contains('USE BY')) {
-        expiryDate = line;
+      
+      if (expiryDate == null) {
+        final match = expiryRegex.firstMatch(line);
+        if (match != null) {
+          expiryDate = match.group(1);
+        }
       }
-      if (name == null && line.length > 3 && !upper.contains('MG')) {
+      
+      if (name == null && line.length > 3 && !strengthRegex.hasMatch(line) && !expiryRegex.hasMatch(line)) {
         name = line;
       }
     }
@@ -43,7 +54,7 @@ class OcrService {
       strength: strength,
       dosageInstruction: 'Take as prescribed',
       expiryDate: expiryDate,
-      confidence: 0.85, // Dummy confidence for MVP
+      confidence: 0.85,
     );
   }
 

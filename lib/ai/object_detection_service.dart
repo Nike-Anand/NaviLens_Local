@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:google_mlkit_object_detection/google_mlkit_object_detection.dart';
 
 class ObjectDetectionService {
@@ -16,7 +17,7 @@ class ObjectDetectionService {
     try {
       return await _objectDetector.processImage(inputImage);
     } catch (e) {
-      print('Object Detection Error: $e');
+      debugPrint('Object Detection Error: $e');
       return [];
     }
   }
