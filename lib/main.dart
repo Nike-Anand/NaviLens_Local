@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
-import 'package:navilens_local/ui/home/home_screen.dart';
+import 'package:navilens_local/ui/theme/app_settings.dart';
+import 'package:navilens_local/ui/theme/app_theme.dart';
+import 'package:navilens_local/ui/splash/splash_screen.dart';
 
 List<CameraDescription> cameras = [];
 
@@ -19,21 +21,25 @@ class NaviLensApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'NaviLens Local',
-      debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        brightness: Brightness.dark,
-        primaryColor: Colors.blueAccent,
-        scaffoldBackgroundColor: const Color(0xFF121212),
-        useMaterial3: true,
-        textTheme: const TextTheme(
-          displayLarge: TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: Colors.white),
-          titleLarge: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.white),
-          bodyLarge: TextStyle(fontSize: 18, color: Colors.white70),
-        ),
+    return AppSettingsScope(
+      settings: AppSettings.instance,
+      child: MaterialApp(
+        title: 'NaviLens Local',
+        debugShowCheckedModeBanner: false,
+        theme: AppTheme.dark,
+        home: const SplashScreen(),
+        // Apply the global "Large Text" accessibility setting.
+        builder: (context, child) {
+          final settings = AppSettingsScope.of(context);
+          final base = MediaQuery.of(context);
+          final scaled = base.copyWith(
+            textScaler: settings.largeText
+                ? const TextScaler.linear(1.25)
+                : TextScaler.noScaling,
+          );
+          return MediaQuery(data: scaled, child: child!);
+        },
       ),
-      home: const HomeScreen(),
     );
   }
 }

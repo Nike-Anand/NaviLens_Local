@@ -30,6 +30,7 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^2.0.0
+  sqflite_common_ffi: ^2.3.0
 
 dependency_overrides:
   device_info_plus: 11.5.0

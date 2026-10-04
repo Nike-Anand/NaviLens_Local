@@ -27,7 +27,7 @@ class OcrService {
     // Regex for dosage (e.g. 500mg, 500 mg, 5ml)
     final strengthRegex = RegExp(r'\b(\d+(?:\.\d+)?)\s*(mg|ml|g|mcg|iu)\b', caseSensitive: false);
     // Regex for expiry (e.g. EXP 12/27, EXP: 12/2027, Expiry: 12/2027)
-    final expiryRegex = RegExp(r'(?i)(?:exp(?:iry)?|use\s*by)[\s:]*(\d{1,2}[/\-]\d{2,4})');
+    final expiryRegex = RegExp(r'(?:exp(?:iry)?|use\s*by)[\s:]*(\d{1,2}[/\-]\d{2,4})', caseSensitive: false);
 
     for (String line in lines) {
       if (strength == null) {
