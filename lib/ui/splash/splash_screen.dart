@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
+
+import '../home/main_shell.dart';
 import '../theme/app_colors.dart';
-import '../theme/app_typography.dart';
 import '../theme/app_spacing.dart';
-import '../home/home_screen.dart';
+import '../theme/app_typography.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -13,9 +14,9 @@ class SplashScreen extends StatefulWidget {
 
 class _SplashScreenState extends State<SplashScreen>
     with SingleTickerProviderStateMixin {
-  late AnimationController _controller;
-  late Animation<double> _fadeIn;
-  late Animation<Offset> _slideUp;
+  late final AnimationController _controller;
+  late final Animation<double> _fadeIn;
+  late final Animation<Offset> _slideUp;
 
   @override
   void initState() {
@@ -41,9 +42,9 @@ class _SplashScreenState extends State<SplashScreen>
   void _getStarted() {
     Navigator.of(context).pushReplacement(
       PageRouteBuilder(
-        pageBuilder: (_, __, ___) => const HomeScreen(),
-        transitionsBuilder: (_, anim, __, child) =>
-            FadeTransition(opacity: anim, child: child),
+        pageBuilder: (_, __, ___) => const MainShell(),
+        transitionsBuilder: (_, animation, __, child) =>
+            FadeTransition(opacity: animation, child: child),
         transitionDuration: const Duration(milliseconds: 400),
       ),
     );
@@ -63,7 +64,6 @@ class _SplashScreenState extends State<SplashScreen>
               child: Column(
                 children: [
                   const Spacer(flex: 2),
-                  // Logo & brand
                   Container(
                     width: 80,
                     height: 80,
@@ -73,12 +73,17 @@ class _SplashScreenState extends State<SplashScreen>
                         end: Alignment.bottomRight,
                         colors: [AppColors.primary, AppColors.medicine],
                       ),
-                      borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
+                      borderRadius:
+                          BorderRadius.circular(AppSpacing.radiusMd),
                     ),
-                    child: const Icon(Icons.visibility, color: Colors.white, size: 44),
+                    child: const Icon(
+                      Icons.visibility,
+                      color: Colors.white,
+                      size: 44,
+                    ),
                   ),
                   const SizedBox(height: AppSpacing.lg),
-                  Text(
+                  const Text(
                     'NaviLens Local',
                     style: AppTypography.display,
                     textAlign: TextAlign.center,
@@ -86,16 +91,14 @@ class _SplashScreenState extends State<SplashScreen>
                   const SizedBox(height: AppSpacing.sm),
                   Text(
                     'Your offline AI assistant\nfor a more independent life',
-                    style: AppTypography.bodyLarge.copyWith(color: AppColors.textSecondary),
+                    style: AppTypography.bodyLarge.copyWith(
+                      color: AppColors.textSecondary,
+                    ),
                     textAlign: TextAlign.center,
                   ),
                   const Spacer(flex: 2),
-
-                  // Core capabilities
                   ..._buildCapabilityRows(),
                   const Spacer(flex: 2),
-
-                  // Trust indicators
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
@@ -107,8 +110,6 @@ class _SplashScreenState extends State<SplashScreen>
                     ],
                   ),
                   const SizedBox(height: AppSpacing.xl),
-
-                  // CTA
                   Semantics(
                     button: true,
                     label: 'Get Started',
@@ -118,12 +119,18 @@ class _SplashScreenState extends State<SplashScreen>
                         onPressed: _getStarted,
                         style: ElevatedButton.styleFrom(
                           backgroundColor: AppColors.primary,
-                          padding: const EdgeInsets.symmetric(vertical: AppSpacing.md),
+                          padding: const EdgeInsets.symmetric(
+                            vertical: AppSpacing.md,
+                          ),
                           shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
+                            borderRadius:
+                                BorderRadius.circular(AppSpacing.radiusMd),
                           ),
                         ),
-                        child: const Text('Get Started', style: AppTypography.button),
+                        child: const Text(
+                          'Get Started',
+                          style: AppTypography.button,
+                        ),
                       ),
                     ),
                   ),
@@ -138,12 +145,27 @@ class _SplashScreenState extends State<SplashScreen>
   }
 
   List<Widget> _buildCapabilityRows() {
-    final caps = [
-      (Icons.medication_outlined, AppColors.medicine, 'Medicine Reader', 'Scan and understand medicine labels'),
-      (Icons.accessibility_new, AppColors.physio, 'Physio Coach', 'Get real-time posture feedback'),
-      (Icons.visibility_outlined, AppColors.environment, 'Environment Assistant', 'Detect and describe objects around you'),
+    final capabilities = [
+      (
+        Icons.medication_outlined,
+        AppColors.medicine,
+        'Medicine Reader',
+        'Scan and understand medicine labels',
+      ),
+      (
+        Icons.accessibility_new,
+        AppColors.physio,
+        'Physio Coach',
+        'Get real-time posture feedback',
+      ),
+      (
+        Icons.visibility_outlined,
+        AppColors.environment,
+        'Environment Assistant',
+        'Detect and describe objects around you',
+      ),
     ];
-    return caps.map((c) {
+    return capabilities.map((capability) {
       return Container(
         margin: const EdgeInsets.only(bottom: AppSpacing.sm),
         padding: const EdgeInsets.symmetric(
@@ -151,9 +173,9 @@ class _SplashScreenState extends State<SplashScreen>
           vertical: AppSpacing.md,
         ),
         decoration: BoxDecoration(
-          color: c.$2.withValues(alpha: 0.08),
+          color: capability.$2.withValues(alpha: 0.08),
           borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
-          border: Border.all(color: c.$2.withValues(alpha: 0.2)),
+          border: Border.all(color: capability.$2.withValues(alpha: 0.2)),
         ),
         child: Row(
           children: [
@@ -161,18 +183,18 @@ class _SplashScreenState extends State<SplashScreen>
               width: 44,
               height: 44,
               decoration: BoxDecoration(
-                color: c.$2.withValues(alpha: 0.2),
+                color: capability.$2.withValues(alpha: 0.2),
                 borderRadius: BorderRadius.circular(AppSpacing.radiusSm),
               ),
-              child: Icon(c.$1, color: c.$2, size: 24),
+              child: Icon(capability.$1, color: capability.$2, size: 24),
             ),
             const SizedBox(width: AppSpacing.md),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(c.$3, style: AppTypography.titleSmall),
-                  Text(c.$4, style: AppTypography.caption),
+                  Text(capability.$3, style: AppTypography.titleSmall),
+                  Text(capability.$4, style: AppTypography.caption),
                 ],
               ),
             ),
@@ -195,7 +217,13 @@ class _SplashScreenState extends State<SplashScreen>
         children: [
           Icon(icon, size: 13, color: AppColors.primary),
           const SizedBox(width: 4),
-          Text(label, style: AppTypography.caption.copyWith(fontSize: 12, color: AppColors.textSecondary)),
+          Text(
+            label,
+            style: AppTypography.caption.copyWith(
+              fontSize: 12,
+              color: AppColors.textSecondary,
+            ),
+          ),
         ],
       ),
     );

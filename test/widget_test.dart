@@ -17,4 +17,17 @@ void main() {
     // Verify that our app starts
     expect(find.text('NaviLens Local'), findsWidgets);
   });
+
+  testWidgets('Get Started opens the home screen', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(const NaviLensApp());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Get Started'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('QUICK ACTIONS'), findsOneWidget);
+    expect(find.text('Medicine'), findsOneWidget);
+  });
 }

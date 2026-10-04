@@ -134,7 +134,7 @@ class _EnvironmentScreenState extends State<EnvironmentScreen> {
                   ),
 
             // Top bar
-            Positioned(
+            const Positioned(
               top: 0, left: 0, right: 0,
               child: _TopBar(
                 title: 'Environment Assistant',

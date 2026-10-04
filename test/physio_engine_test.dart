@@ -37,9 +37,6 @@ Pose _buildSquatPose(double kneeAngle) {
   });
 }
 
-/// A [Pose] with no landmarks at all.
-Pose _emptyPose() => _MockPose({});
-
 /// A [Pose] missing the ankle landmark.
 Pose _missingAnklePose() => _MockPose({
       PoseLandmarkType.leftHip: _landmark(0, -1),
@@ -199,7 +196,9 @@ void main() {
     test('low angle (< squatConfig.targetMinAngle + tolerance) gives squat feedback', () {
       // Prime state
       engine.processPose([_buildSquatPose(165)]);
-      for (int i = 0; i < 3; i++) engine.processPose([_buildSquatPose(120)]);
+      for (int i = 0; i < 3; i++) {
+        engine.processPose([_buildSquatPose(120)]);
+      }
       final deep = engine.processPose([_buildSquatPose(60)]);
       expect(
         deep.toLowerCase(),
