@@ -52,6 +52,9 @@ class _SplashScreenState extends State<SplashScreen>
 
   @override
   Widget build(BuildContext context) {
+    final compact = MediaQuery.sizeOf(context).height < 680;
+    final markSize = compact ? 68.0 : 80.0;
+
     return Scaffold(
       backgroundColor: AppColors.background,
       body: SafeArea(
@@ -65,21 +68,20 @@ class _SplashScreenState extends State<SplashScreen>
                 children: [
                   const Spacer(flex: 2),
                   Container(
-                    width: 80,
-                    height: 80,
+                    width: markSize,
+                    height: markSize,
                     decoration: BoxDecoration(
                       gradient: const LinearGradient(
                         begin: Alignment.topLeft,
                         end: Alignment.bottomRight,
                         colors: [AppColors.primary, AppColors.medicine],
                       ),
-                      borderRadius:
-                          BorderRadius.circular(AppSpacing.radiusMd),
+                      borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
                     ),
-                    child: const Icon(
+                    child: Icon(
                       Icons.visibility,
                       color: Colors.white,
-                      size: 44,
+                      size: compact ? 38 : 44,
                     ),
                   ),
                   const SizedBox(height: AppSpacing.lg),
@@ -97,7 +99,7 @@ class _SplashScreenState extends State<SplashScreen>
                     textAlign: TextAlign.center,
                   ),
                   const Spacer(flex: 2),
-                  ..._buildCapabilityRows(),
+                  ..._buildCapabilityRows(compact: compact),
                   const Spacer(flex: 2),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
@@ -144,7 +146,7 @@ class _SplashScreenState extends State<SplashScreen>
     );
   }
 
-  List<Widget> _buildCapabilityRows() {
+  List<Widget> _buildCapabilityRows({required bool compact}) {
     final capabilities = [
       (
         Icons.medication_outlined,
@@ -168,9 +170,9 @@ class _SplashScreenState extends State<SplashScreen>
     return capabilities.map((capability) {
       return Container(
         margin: const EdgeInsets.only(bottom: AppSpacing.sm),
-        padding: const EdgeInsets.symmetric(
+        padding: EdgeInsets.symmetric(
           horizontal: AppSpacing.md,
-          vertical: AppSpacing.md,
+          vertical: compact ? 10 : AppSpacing.md,
         ),
         decoration: BoxDecoration(
           color: capability.$2.withValues(alpha: 0.08),
@@ -206,7 +208,8 @@ class _SplashScreenState extends State<SplashScreen>
 
   Widget _trustChip(IconData icon, String label) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm, vertical: 6),
+      padding:
+          const EdgeInsets.symmetric(horizontal: AppSpacing.sm, vertical: 6),
       decoration: BoxDecoration(
         color: AppColors.surface,
         borderRadius: BorderRadius.circular(AppSpacing.radiusFull),

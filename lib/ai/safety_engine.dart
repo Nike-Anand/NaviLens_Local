@@ -28,10 +28,12 @@ class SafetyEngine {
     if (rawInfo.confidence < 0.3) return null;
 
     final name = rawInfo.name;
-    final isNameValid =
-        name != null && name.trim().length > 2 && !RegExp(r'^[0-9]+$').hasMatch(name.trim());
+    final isNameValid = name != null &&
+        name.trim().length > 2 &&
+        !RegExp(r'^[0-9]+$').hasMatch(name.trim());
 
-    final cleanedInstruction = _stripPrescriptiveLanguage(rawInfo.dosageInstruction);
+    final cleanedInstruction =
+        _stripPrescriptiveLanguage(rawInfo.dosageInstruction);
 
     return MedicineInfo(
       name: isNameValid ? name : 'Unknown Medicine',
@@ -43,9 +45,9 @@ class SafetyEngine {
     );
   }
 
-  static String _stripPrescriptiveLanguage(String? rawInstruction) {
+  static String? _stripPrescriptiveLanguage(String? rawInstruction) {
     if (rawInstruction == null || rawInstruction.trim().isEmpty) {
-      return 'Take as directed on the label.';
+      return null;
     }
 
     final lower = rawInstruction.toLowerCase();

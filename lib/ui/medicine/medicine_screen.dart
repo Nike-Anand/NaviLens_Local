@@ -1,15 +1,17 @@
 import 'dart:io';
 
-import 'package:camera/camera.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
+import 'package:image_picker/image_picker.dart';
 
 import 'package:navilens_local/accessibility/feedback_engine.dart';
 import 'package:navilens_local/ai/models.dart';
 import 'package:navilens_local/ai/ocr_service.dart';
 import 'package:navilens_local/camera/camera_view.dart';
 import 'package:navilens_local/main.dart';
+import 'package:navilens_local/data/history_db.dart';
 
 import '../components/app_components.dart';
 import '../theme/app_colors.dart';
@@ -25,6 +27,8 @@ class MedicineScreen extends StatefulWidget {
 
 class _MedicineScreenState extends State<MedicineScreen> {
   final OcrService _ocrService = OcrService();
+  final ImagePicker _imagePicker = ImagePicker();
+  final GlobalKey<CameraViewState> _cameraKey = GlobalKey<CameraViewState>();
 
   final ValueNotifier<bool> _flashOn = ValueNotifier<bool>(false);
 
@@ -40,106 +44,86 @@ class _MedicineScreenState extends State<MedicineScreen> {
     super.dispose();
   }
 
-  Future<void> _processCameraImage(CameraImage image) async {
-    if (_isProcessing || _showResult) {
+  bool get _supportsOnDeviceOcr =>
+      !kIsWeb && (Platform.isAndroid || Platform.isIOS);
+
+  void _showMessage(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  Future<void> _captureImage() async {
+    if (_isProcessing) return;
+    if (!_supportsOnDeviceOcr) {
+      _showMessage('Medicine reading is supported on Android and iOS.');
       return;
     }
 
-    _isProcessing = true;
+    setState(() => _isProcessing = true);
+    try {
+      final photo = await _cameraKey.currentState?.capturePhoto();
+      if (photo == null) {
+        _showMessage(
+            'Could not capture a photo. Check camera access and try again.');
+        return;
+      }
+      await _readImage(photo.path);
+    } catch (e) {
+      debugPrint('Medicine capture error: $e');
+      _showMessage('Could not capture the medicine label. Please try again.');
+    } finally {
+      if (mounted) setState(() => _isProcessing = false);
+    }
+  }
 
-    final inputImage = _inputImageFromCameraImage(image);
-
-    if (inputImage == null) {
-      _isProcessing = false;
+  Future<void> _selectImage() async {
+    if (_isProcessing) return;
+    if (!_supportsOnDeviceOcr) {
+      _showMessage('Medicine reading is supported on Android and iOS.');
       return;
     }
 
     try {
-      final result = await _ocrService.analyzeImage(inputImage);
-
-      if (mounted && result != null) {
-        setState(() {
-          _currentMedicine = result;
-          _showResult = true;
-        });
-      }
+      final image = await _imagePicker.pickImage(source: ImageSource.gallery);
+      if (image != null) await _processImage(image.path);
     } catch (e) {
-      debugPrint('Medicine OCR error: $e');
+      debugPrint('Medicine image selection error: $e');
+      _showMessage('Could not open the photo library. Please try again.');
+    }
+  }
+
+  Future<void> _processImage(String path) async {
+    if (_isProcessing) return;
+    setState(() => _isProcessing = true);
+    try {
+      await _readImage(path);
     } finally {
-      _isProcessing = false;
+      if (mounted) setState(() => _isProcessing = false);
     }
   }
 
-  InputImage? _inputImageFromCameraImage(CameraImage image) {
-    if (cameras.isEmpty || image.planes.isEmpty) {
-      return null;
+  Future<void> _readImage(String path) async {
+    final result =
+        await _ocrService.analyzeImage(InputImage.fromFilePath(path));
+    if (!mounted) return;
+    if (result == null) {
+      _showMessage(
+          'No readable medicine label found. Move closer and try again.');
+      return;
     }
 
-    final camera = cameras.first;
-    final sensorOrientation = camera.sensorOrientation;
-
-    InputImageRotation? rotation;
-
-    if (Platform.isIOS) {
-      rotation = InputImageRotationValue.fromRawValue(
-        sensorOrientation,
-      );
-    } else if (Platform.isAndroid) {
-      var rotationCompensation =
-          _orientations[DeviceOrientation.portraitUp];
-
-      if (rotationCompensation == null) {
-        return null;
-      }
-
-      if (camera.lensDirection == CameraLensDirection.front) {
-        rotationCompensation =
-            (sensorOrientation + rotationCompensation) % 360;
-      } else {
-        rotationCompensation =
-            (sensorOrientation - rotationCompensation + 360) % 360;
-      }
-
-      rotation = InputImageRotationValue.fromRawValue(
-        rotationCompensation,
-      );
+    setState(() {
+      _currentMedicine = result;
+      _showResult = true;
+    });
+    try {
+      await HistoryDB.instance.logMedicineScan(result);
+    } catch (e) {
+      debugPrint('Medicine scan history error: $e');
     }
-
-    if (rotation == null) {
-      return null;
-    }
-
-    final format = InputImageFormatValue.fromRawValue(
-      image.format.raw,
-    );
-
-    if (format == null ||
-        (Platform.isAndroid &&
-            format != InputImageFormat.nv21 &&
-            format != InputImageFormat.yuv420)) {
-      return null;
-    }
-
-    return InputImage.fromBytes(
-      bytes: image.planes[0].bytes,
-      metadata: InputImageMetadata(
-        size: Size(
-          image.width.toDouble(),
-          image.height.toDouble(),
-        ),
-        rotation: rotation,
-        format: format,
-        bytesPerRow: image.planes[0].bytesPerRow,
-      ),
-    );
   }
-
-  final Map<DeviceOrientation, int> _orientations = {
-    DeviceOrientation.portraitUp: 0,
-    DeviceOrientation.landscapeLeft: 90,
-    DeviceOrientation.portraitDown: 180,
-    DeviceOrientation.landscapeRight: 270,
-  };
 
   void _speak() {
     final medicine = _currentMedicine;
@@ -150,10 +134,8 @@ class _MedicineScreenState extends State<MedicineScreen> {
 
     final parts = [
       if (medicine.name != null) medicine.name!,
-      if (medicine.strength != null)
-        'Strength: ${medicine.strength}',
-      if (medicine.expiryDate != null)
-        'Expiry: ${medicine.expiryDate}',
+      if (medicine.strength != null) 'Strength: ${medicine.strength}',
+      if (medicine.expiryDate != null) 'Expiry: ${medicine.expiryDate}',
       medicine.dosageInstruction ?? '',
       'Always follow your prescription and healthcare professional\'s instructions.',
     ].where((value) => value.isNotEmpty).join('. ');
@@ -192,8 +174,8 @@ class _MedicineScreenState extends State<MedicineScreen> {
           children: [
             cameras.isNotEmpty
                 ? CameraView(
+                    key: _cameraKey,
                     cameras: cameras,
-                    onImage: _processCameraImage,
                     flashControl: _flashOn,
                   )
                 : const AppErrorState(
@@ -201,7 +183,6 @@ class _MedicineScreenState extends State<MedicineScreen> {
                     message:
                         'NaviLens uses your camera to read labels.\nPlease grant camera permission in Settings.',
                   ),
-
             Positioned(
               top: 0,
               left: 0,
@@ -212,12 +193,10 @@ class _MedicineScreenState extends State<MedicineScreen> {
                 topInset: topInset,
               ),
             ),
-
             if (!_showResult)
               const CameraScanOverlay(
-                hint: 'Hold the label steady for a clearer scan',
+                hint: 'Frame the label, then tap to capture',
               ),
-
             if (_isProcessing && !_showResult)
               Positioned(
                 left: 20,
@@ -229,27 +208,17 @@ class _MedicineScreenState extends State<MedicineScreen> {
                   ),
                 ),
               ),
-
             if (!_showResult)
               Align(
                 alignment: Alignment.bottomCenter,
                 child: _MedicineControls(
                   flashOn: _flashOn,
                   bottomInset: bottomInset,
-                  onGallery: () {
-                    HapticFeedback.selectionClick();
-
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text(
-                          'NaviLens is fully offline. Scanning happens through the camera.',
-                        ),
-                      ),
-                    );
-                  },
+                  isProcessing: _isProcessing,
+                  onCapture: _captureImage,
+                  onGallery: _selectImage,
                 ),
               ),
-
             if (_showResult && _currentMedicine != null)
               Align(
                 alignment: Alignment.bottomCenter,
@@ -326,9 +295,7 @@ class _TopBar extends StatelessWidget {
               size: 22,
             ),
           ),
-
           const SizedBox(width: 4),
-
           Expanded(
             child: Text(
               title,
@@ -339,9 +306,7 @@ class _TopBar extends StatelessWidget {
               ),
             ),
           ),
-
           const SizedBox(width: 8),
-
           Flexible(
             child: Container(
               padding: const EdgeInsets.symmetric(
@@ -417,7 +382,6 @@ class _MedicineResultPanel extends StatelessWidget {
       child: Column(
         children: [
           const SizedBox(height: 10),
-
           Container(
             width: 42,
             height: 4,
@@ -426,7 +390,6 @@ class _MedicineResultPanel extends StatelessWidget {
               borderRadius: BorderRadius.circular(99),
             ),
           ),
-
           Expanded(
             child: ListView(
               controller: scrollController,
@@ -451,9 +414,7 @@ class _MedicineResultPanel extends StatelessWidget {
                     ),
                   ],
                 ),
-
                 const SizedBox(height: 20),
-
                 if (medicine.strength != null)
                   _InfoRow(
                     Icons.science_outlined,
@@ -461,7 +422,6 @@ class _MedicineResultPanel extends StatelessWidget {
                     medicine.strength!,
                     AppColors.medicine,
                   ),
-
                 if (medicine.expiryDate != null) ...[
                   const SizedBox(height: 12),
                   _InfoRow(
@@ -471,7 +431,6 @@ class _MedicineResultPanel extends StatelessWidget {
                     AppColors.warning,
                   ),
                 ],
-
                 if (medicine.dosageInstruction != null) ...[
                   const SizedBox(height: 12),
                   _InfoRow(
@@ -481,13 +440,9 @@ class _MedicineResultPanel extends StatelessWidget {
                     AppColors.primary,
                   ),
                 ],
-
                 const SizedBox(height: 20),
-
                 _SafetyNotice(),
-
                 const SizedBox(height: 20),
-
                 LayoutBuilder(
                   builder: (context, constraints) {
                     final compact = constraints.maxWidth < 390;
@@ -504,8 +459,7 @@ class _MedicineResultPanel extends StatelessWidget {
                               ),
                               label: const Text('Listen'),
                               style: ElevatedButton.styleFrom(
-                                backgroundColor:
-                                    AppColors.medicine,
+                                backgroundColor: AppColors.medicine,
                               ),
                             ),
                           ),
@@ -519,8 +473,7 @@ class _MedicineResultPanel extends StatelessWidget {
                               ),
                               label: const Text('Scan Again'),
                               style: OutlinedButton.styleFrom(
-                                foregroundColor:
-                                    AppColors.medicine,
+                                foregroundColor: AppColors.medicine,
                                 side: const BorderSide(
                                   color: AppColors.medicine,
                                   width: 1.5,
@@ -542,8 +495,7 @@ class _MedicineResultPanel extends StatelessWidget {
                             ),
                             label: const Text('Listen'),
                             style: ElevatedButton.styleFrom(
-                              backgroundColor:
-                                  AppColors.medicine,
+                              backgroundColor: AppColors.medicine,
                             ),
                           ),
                         ),
@@ -556,8 +508,7 @@ class _MedicineResultPanel extends StatelessWidget {
                             ),
                             label: const Text('Scan Again'),
                             style: OutlinedButton.styleFrom(
-                              foregroundColor:
-                                  AppColors.medicine,
+                              foregroundColor: AppColors.medicine,
                               side: const BorderSide(
                                 color: AppColors.medicine,
                                 width: 1.5,
@@ -616,9 +567,7 @@ class _InfoRow extends StatelessWidget {
                 size: 18,
               ),
             ),
-
             const SizedBox(width: 12),
-
             Flexible(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -678,9 +627,7 @@ class _SafetyNotice extends StatelessWidget {
               size: 19,
             ),
           ),
-
           const SizedBox(width: 12),
-
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -711,11 +658,15 @@ class _SafetyNotice extends StatelessWidget {
 class _MedicineControls extends StatelessWidget {
   final ValueNotifier<bool> flashOn;
   final VoidCallback onGallery;
+  final VoidCallback onCapture;
+  final bool isProcessing;
   final double bottomInset;
 
   const _MedicineControls({
     required this.flashOn,
     required this.onGallery,
+    required this.onCapture,
+    required this.isProcessing,
     required this.bottomInset,
   });
 
@@ -731,10 +682,10 @@ class _MedicineControls extends StatelessWidget {
       builder: (context, isFlashOn, _) {
         return Container(
           padding: EdgeInsets.fromLTRB(
+            14,
             24,
             24,
-            24,
-            bottomInset + 20,
+            bottomInset + 12,
           ),
           decoration: BoxDecoration(
             gradient: LinearGradient(
@@ -756,14 +707,16 @@ class _MedicineControls extends StatelessWidget {
                 label: 'Gallery',
                 onTap: onGallery,
               ),
-
               Semantics(
                 button: true,
                 label: 'Scan medicine label',
                 child: GestureDetector(
-                  onTap: () {
-                    HapticFeedback.mediumImpact();
-                  },
+                  onTap: isProcessing
+                      ? null
+                      : () {
+                          HapticFeedback.mediumImpact();
+                          onCapture();
+                        },
                   child: Container(
                     width: 76,
                     height: 76,
@@ -784,15 +737,22 @@ class _MedicineControls extends StatelessWidget {
                         ),
                       ],
                     ),
-                    child: const Icon(
-                      Icons.medication_rounded,
-                      color: AppColors.medicine,
-                      size: 31,
-                    ),
+                    child: isProcessing
+                        ? const Padding(
+                            padding: EdgeInsets.all(22),
+                            child: CircularProgressIndicator(
+                              strokeWidth: 3,
+                              color: AppColors.medicine,
+                            ),
+                          )
+                        : const Icon(
+                            Icons.camera_alt_rounded,
+                            color: AppColors.medicine,
+                            size: 31,
+                          ),
                   ),
                 ),
               ),
-
               _ControlIconButton(
                 icon: isFlashOn
                     ? Icons.flash_on_rounded
@@ -849,9 +809,7 @@ class _ControlIconButton extends StatelessWidget {
                   ),
                   child: Icon(
                     icon,
-                    color: active
-                        ? AppColors.medicine
-                        : Colors.white,
+                    color: active ? AppColors.medicine : Colors.white,
                     size: 25,
                   ),
                 ),

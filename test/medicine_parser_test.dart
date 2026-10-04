@@ -1,50 +1,14 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:navilens_local/ai/models.dart';
+import 'package:navilens_local/ai/ocr_service.dart';
 import 'package:navilens_local/ai/safety_engine.dart';
 
 // ────────────────────────────────────────────────────────────
-// We test the _extractMedicineData logic indirectly by replicating
-// the exact same regex logic used in OcrService. This lets us test
-// the parser without spinning up a TextRecognizer.
+// The static parser can be tested without constructing a TextRecognizer.
 // ────────────────────────────────────────────────────────────
 
 MedicineInfo _parse(String rawText) {
-  String? name;
-  String? strength;
-  String? expiryDate;
-
-  final lines = rawText.split('\n');
-  final strengthRegex =
-      RegExp(r'\b(\d+(?:\.\d+)?)\s*(mg|ml|g|mcg|iu)\b', caseSensitive: false);
-  final expiryRegex =
-      RegExp(r'(?:exp(?:iry)?|use\s*by)[\s:]*(\d{1,2}[/\-]\d{2,4})', caseSensitive: false);
-
-  for (final line in lines) {
-    if (strength == null) {
-      final match = strengthRegex.firstMatch(line);
-      if (match != null) {
-        strength = '${match.group(1)} ${match.group(2)!.toLowerCase()}';
-      }
-    }
-    if (expiryDate == null) {
-      final match = expiryRegex.firstMatch(line);
-      if (match != null) expiryDate = match.group(1);
-    }
-    if (name == null &&
-        line.length > 3 &&
-        !strengthRegex.hasMatch(line) &&
-        !expiryRegex.hasMatch(line)) {
-      name = line;
-    }
-  }
-
-  return MedicineInfo(
-    name: name ?? 'Unknown Medicine',
-    strength: strength,
-    dosageInstruction: 'Take as prescribed',
-    expiryDate: expiryDate,
-    confidence: 0.85,
-  );
+  return OcrService.parseText(rawText)!;
 }
 
 void main() {
@@ -119,16 +83,12 @@ void main() {
       expect(info.name, equals('Paracetamol'));
     });
 
-    test('empty OCR text gives Unknown Medicine', () {
-      final info = _parse('');
-      expect(info.name, equals('Unknown Medicine'));
+    test('empty OCR text returns no result', () {
+      expect(OcrService.parseText(''), isNull);
     });
 
-    test('garbage OCR with only numbers gives Unknown Medicine', () {
-      // All lines are numbers or too short
-      final info = _parse('12\n34\n56\n78');
-      // Name may be Unknown Medicine or a short line depending on length check
-      expect(info.name, isNotNull);
+    test('unreadable OCR with only numbers returns no result', () {
+      expect(OcrService.parseText('12\n34\n56\n78'), isNull);
     });
 
     test('partial label (name + no strength) still returns name', () {
@@ -151,14 +111,11 @@ void main() {
       expect(result.warnings, isNotEmpty);
     });
 
-    test('empty OCR after safety engine returns Unknown Medicine with disclaimer', () {
-      final raw = _parse('');
+    test('missing dosage instructions stay missing after validation', () {
+      final raw = _parse('Paracetamol\n500 mg');
       final result = SafetyEngine.validateMedicineExtraction(raw);
-      // 'Unknown Medicine' (3+ chars, no numbers-only) → may pass
-      // Regardless, warnings must be present if result is non-null
-      if (result != null) {
-        expect(result.warnings, isNotEmpty);
-      }
+      expect(result, isNotNull);
+      expect(result!.dosageInstruction, isNull);
     });
 
     test('safety engine adds disclaimer on top of existing warnings', () {
