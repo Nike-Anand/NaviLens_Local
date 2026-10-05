@@ -46,7 +46,7 @@ class _AccessibilityScreenState extends State<AccessibilityScreen> {
       body: ListView(
         padding: const EdgeInsets.all(AppSpacing.md),
         children: [
-          Text('Make NaviLens easier to see and use.', style: AppTypography.body),
+          const Text('Make NaviLens easier to see and use.', style: AppTypography.body),
           const SizedBox(height: AppSpacing.lg),
 
           _A11yToggleRow(

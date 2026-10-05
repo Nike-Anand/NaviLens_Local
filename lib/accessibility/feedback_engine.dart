@@ -20,19 +20,19 @@ class FeedbackEngine {
   }
 
   static Future<void> vibrateInfo() async {
-    if (await Vibration.hasVibrator() ?? false) {
+    if (await Vibration.hasVibrator()) {
       Vibration.vibrate(duration: 100);
     }
   }
 
   static Future<void> vibrateWarning() async {
-    if (await Vibration.hasVibrator() ?? false) {
+    if (await Vibration.hasVibrator()) {
       Vibration.vibrate(pattern: [0, 150, 100, 150]);
     }
   }
 
   static Future<void> vibrateHighPriority() async {
-    if (await Vibration.hasVibrator() ?? false) {
+    if (await Vibration.hasVibrator()) {
       Vibration.vibrate(duration: 500);
     }
   }

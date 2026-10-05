@@ -1,5 +1,4 @@
 import 'package:camera/camera.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 /// Full-screen live camera feed with optional aligned overlays and flash
@@ -10,7 +9,7 @@ import 'package:flutter/material.dart';
 /// box so UI such as detection boxes / landmarks align with the preview.
 class CameraView extends StatefulWidget {
   final List<CameraDescription> cameras;
-  final Function(CameraImage image) onImage;
+  final Function(CameraImage image)? onImage;
 
   /// Optional builder layered over the preview. Receives the most recent raw
   /// camera frame size so coordinates can be mapped via [CoordinateMapper].
@@ -22,29 +21,33 @@ class CameraView extends StatefulWidget {
   const CameraView({
     super.key,
     required this.cameras,
-    required this.onImage,
+    this.onImage,
     this.overlayBuilder,
     this.flashControl,
   });
 
   @override
-  State<CameraView> createState() => _CameraViewState();
+  State<CameraView> createState() => CameraViewState();
 }
 
-class _CameraViewState extends State<CameraView> {
+class CameraViewState extends State<CameraView> {
   CameraController? _controller;
   int _cameraIndex = -1;
   bool _isBusy = false;
   Size _imageSize = Size.zero;
   bool _torch = false;
+  bool _isCapturing = false;
+  String? _cameraError;
 
   @override
   void initState() {
     super.initState();
     widget.flashControl?.addListener(_onFlashChanged);
-    if (widget.cameras.any((element) => element.lensDirection == CameraLensDirection.back)) {
+    if (widget.cameras
+        .any((element) => element.lensDirection == CameraLensDirection.back)) {
       _cameraIndex = widget.cameras.indexOf(
-        widget.cameras.firstWhere((element) => element.lensDirection == CameraLensDirection.back),
+        widget.cameras.firstWhere(
+            (element) => element.lensDirection == CameraLensDirection.back),
       );
     } else if (widget.cameras.isNotEmpty) {
       _cameraIndex = 0;
@@ -60,7 +63,9 @@ class _CameraViewState extends State<CameraView> {
     if (on == _torch) return;
     _torch = on;
     if (_controller != null && _controller!.value.isInitialized) {
-      _controller!.setFlashMode(on ? FlashMode.torch : FlashMode.off).catchError((_) {});
+      _controller!
+          .setFlashMode(on ? FlashMode.torch : FlashMode.off)
+          .catchError((_) {});
     }
   }
 
@@ -73,6 +78,19 @@ class _CameraViewState extends State<CameraView> {
 
   @override
   Widget build(BuildContext context) {
+    if (_cameraError != null) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Text(
+            _cameraError!,
+            textAlign: TextAlign.center,
+            style: const TextStyle(color: Colors.white),
+          ),
+        ),
+      );
+    }
+
     if (_controller == null || _controller?.value.isInitialized == false) {
       return const Center(
         child: CircularProgressIndicator(color: Colors.white),
@@ -99,7 +117,34 @@ class _CameraViewState extends State<CameraView> {
     );
   }
 
-  Future _startLiveFeed() async {
+  Future<XFile?> capturePhoto() async {
+    final controller = _controller;
+    if (controller == null || !controller.value.isInitialized || _isCapturing) {
+      return null;
+    }
+
+    _isCapturing = true;
+    final restartStream = controller.value.isStreamingImages;
+    try {
+      if (restartStream) {
+        await controller.stopImageStream();
+      }
+      return await controller.takePicture();
+    } catch (e) {
+      debugPrint('Error capturing camera image: $e');
+      return null;
+    } finally {
+      if (mounted &&
+          restartStream &&
+          controller.value.isInitialized &&
+          !controller.value.isStreamingImages) {
+        await _startImageStream(controller);
+      }
+      _isCapturing = false;
+    }
+  }
+
+  Future<void> _startLiveFeed() async {
     final camera = widget.cameras[_cameraIndex];
     _controller = CameraController(
       camera,
@@ -112,26 +157,41 @@ class _CameraViewState extends State<CameraView> {
       await _controller?.initialize();
       if (!mounted) return;
 
-      _controller?.startImageStream((CameraImage image) {
-        if (!_isBusy) {
-          _isBusy = true;
-          _imageSize = Size(image.width.toDouble(), image.height.toDouble());
-          widget.onImage(image);
-          // Throttle frames to not overload the ML models
-          Future.delayed(const Duration(milliseconds: 100), () {
-            _isBusy = false;
-          });
-        }
-      });
+      if (widget.onImage != null) {
+        await _startImageStream(_controller!);
+      }
       setState(() {});
     } catch (e) {
       debugPrint('Error initializing camera: $e');
+      if (mounted) {
+        setState(() {
+          _cameraError =
+              'Camera unavailable. Check camera permissions and try again.';
+        });
+      }
     }
   }
 
-  Future _stopLiveFeed() async {
-    await _controller?.stopImageStream();
-    await _controller?.dispose();
+  Future<void> _startImageStream(CameraController controller) async {
+    await controller.startImageStream((CameraImage image) {
+      if (!_isBusy) {
+        _isBusy = true;
+        _imageSize = Size(image.width.toDouble(), image.height.toDouble());
+        widget.onImage?.call(image);
+        Future.delayed(const Duration(milliseconds: 100), () {
+          _isBusy = false;
+        });
+      }
+    });
+  }
+
+  Future<void> _stopLiveFeed() async {
+    final controller = _controller;
     _controller = null;
+    if (controller == null) return;
+    if (controller.value.isStreamingImages) {
+      await controller.stopImageStream();
+    }
+    await controller.dispose();
   }
 }

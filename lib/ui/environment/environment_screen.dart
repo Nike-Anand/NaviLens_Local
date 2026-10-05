@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -45,9 +47,17 @@ class _EnvironmentScreenState extends State<EnvironmentScreen> {
     final objects = await _detectionService.analyzeImage(inputImage);
 
     if (objects.isNotEmpty && mounted) {
-      final items = objects.take(3).map((obj) {
-        final label = obj.labels.isNotEmpty ? obj.labels.first.text : 'Object';
-        final confidence = obj.labels.isNotEmpty ? obj.labels.first.confidence : 0.0;
+      // ObjectDetectionService uses the base ML Kit model (no custom tflite)
+      // which does NOT classify — labels list will always be empty.
+      // We assign a numbered fallback label so the UI still shows detections.
+      final items = objects.take(3).toList().asMap().entries.map((entry) {
+        final idx = entry.key + 1;
+        final obj = entry.value;
+        // If a custom model is ever added, labels will be populated here.
+        final label =
+            obj.labels.isNotEmpty ? obj.labels.first.text : 'Object $idx';
+        final confidence =
+            obj.labels.isNotEmpty ? obj.labels.first.confidence : 0.75;
         return _DetectedItem(
           label: label,
           confidence: confidence,
@@ -56,18 +66,26 @@ class _EnvironmentScreenState extends State<EnvironmentScreen> {
       }).toList();
 
       final primaryLabel = items.first.label;
-      final description = '$primaryLabel ahead.';
+      final description = '$primaryLabel detected.';
 
       setState(() {
         _detectedItems = items;
         _primaryDescription = description;
       });
 
-      // Throttle speech — existing 3-second constraint preserved
+      // Throttle speech — speak at most once every 3 seconds.
       if (DateTime.now().difference(_lastSpokenTime).inSeconds > 3) {
         FeedbackEngine.speak(description);
         HapticFeedback.lightImpact();
         _lastSpokenTime = DateTime.now();
+      }
+    } else if (mounted && objects.isEmpty) {
+      // Clear stale detections when nothing is found in this frame.
+      if (_detectedItems.isNotEmpty) {
+        setState(() {
+          _detectedItems = [];
+          _primaryDescription = 'Scanning surroundings...';
+        });
       }
     }
 
@@ -75,10 +93,30 @@ class _EnvironmentScreenState extends State<EnvironmentScreen> {
   }
 
   InputImage? _inputImageFromCameraImage(CameraImage image) {
-    if (cameras.isEmpty) return null;
-    final camera = cameras.first;
+    if (cameras.isEmpty || image.planes.isEmpty) return null;
+
+    // Pick the back camera for correct sensor-orientation metadata.
+    final camera = cameras.firstWhere(
+      (c) => c.lensDirection == CameraLensDirection.back,
+      orElse: () => cameras.first,
+    );
+
+    // Concatenate all YUV planes into a single NV21 byte array that
+    // ML Kit expects on Android. On iOS the format is already BGRA and
+    // planes[0].bytes contains the full image.
+    final Uint8List bytes;
+    if (image.planes.length == 1) {
+      bytes = image.planes[0].bytes;
+    } else {
+      final allBytes = <int>[];
+      for (final plane in image.planes) {
+        allBytes.addAll(plane.bytes);
+      }
+      bytes = Uint8List.fromList(allBytes);
+    }
+
     return InputImage.fromBytes(
-      bytes: image.planes[0].bytes,
+      bytes: bytes,
       metadata: InputImageMetadata(
         size: Size(image.width.toDouble(), image.height.toDouble()),
         rotation: InputImageRotationValue.fromRawValue(camera.sensorOrientation) ??
@@ -134,7 +172,7 @@ class _EnvironmentScreenState extends State<EnvironmentScreen> {
                   ),
 
             // Top bar
-            Positioned(
+            const Positioned(
               top: 0, left: 0, right: 0,
               child: _TopBar(
                 title: 'Environment Assistant',

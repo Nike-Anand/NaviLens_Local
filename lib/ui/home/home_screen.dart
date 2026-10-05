@@ -1,170 +1,555 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+
+import 'package:navilens_local/ui/environment/environment_screen.dart';
 import 'package:navilens_local/ui/medicine/medicine_screen.dart';
 import 'package:navilens_local/ui/physio/physio_screen.dart';
-import 'package:navilens_local/ui/environment/environment_screen.dart';
-import 'package:navilens_local/ui/history/history_screen.dart';
 import 'package:navilens_local/ui/settings/settings_screen.dart';
-import 'package:navilens_local/ui/theme/app_colors.dart';
-import 'package:navilens_local/ui/theme/app_typography.dart';
-import 'package:navilens_local/ui/theme/app_spacing.dart';
-import 'package:navilens_local/ui/components/app_components.dart';
+
+import '../components/app_components.dart';
+import '../theme/app_colors.dart';
+import '../theme/app_typography.dart';
+import '../theme/responsive.dart';
 
 class HomeScreen extends StatelessWidget {
   const HomeScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: AppColors.background,
-      appBar: AppBar(
-        backgroundColor: AppColors.background,
-        leading: const Padding(
-          padding: EdgeInsets.only(left: AppSpacing.md),
-          child: Center(
-            child: NaviLensLogo(size: 44, iconSize: 26),
-          ),
-        ),
-        titleSpacing: 0,
-        title: const Text(
-          'NaviLens Local',
-          style: AppTypography.title,
-        ),
-        actions: [
-          IconButton(
-            tooltip: 'Settings',
-            onPressed: () => Navigator.push(
-              context,
-              _slideRoute(const SettingsScreen()),
+    return const HomeScreenContent();
+  }
+}
+
+class HomeScreenContent extends StatelessWidget {
+  const HomeScreenContent({super.key});
+
+  void _open(
+    BuildContext context,
+    Widget page,
+  ) {
+    HapticFeedback.lightImpact();
+
+    Navigator.of(context).push(
+      PageRouteBuilder(
+        pageBuilder: (_, __, ___) => page,
+        transitionDuration: const Duration(milliseconds: 280),
+        reverseTransitionDuration:
+            const Duration(milliseconds: 220),
+        transitionsBuilder: (_, animation, __, child) {
+          final curve = CurvedAnimation(
+            parent: animation,
+            curve: Curves.easeOutCubic,
+          );
+
+          return FadeTransition(
+            opacity: curve,
+            child: SlideTransition(
+              position: Tween<Offset>(
+                begin: const Offset(0.025, 0),
+                end: Offset.zero,
+              ).animate(curve),
+              child: child,
             ),
-            icon: const Icon(Icons.settings_rounded, color: AppColors.textPrimary),
+          );
+        },
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final horizontal =
+        Responsive.horizontalPadding(context);
+
+    return Container(
+      color: AppColors.background,
+      child: Stack(
+        children: [
+          // Ambient top glow
+          Positioned(
+            top: -150,
+            left: -100,
+            right: -100,
+            child: Opacity(
+              opacity: 0.12,
+              child: Container(
+                height: 350,
+                decoration: const BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: RadialGradient(
+                    colors: [
+                      AppColors.primary,
+                      AppColors.medicine,
+                      Colors.transparent,
+                    ],
+                    stops: [0.0, 0.5, 1.0],
+                  ),
+                ),
+              ),
+            ),
           ),
-          const SizedBox(width: AppSpacing.xs),
+          SafeArea(
+            child: Center(
+              child: ConstrainedBox(
+                constraints: BoxConstraints(
+                  maxWidth: Responsive.maxContentWidth(context),
+                ),
+                child: CustomScrollView(
+                  physics: const BouncingScrollPhysics(),
+                  slivers: [
+                    SliverPadding(
+                  padding: EdgeInsets.fromLTRB(
+                    horizontal,
+                    10,
+                    horizontal,
+                    24,
+                  ),
+                  sliver: SliverList(
+                    delegate: SliverChildListDelegate([
+                      _buildTopBar(context),
+
+                      const SizedBox(height: 18),
+
+                      _buildGreeting(),
+
+                      const SizedBox(height: 18),
+
+                      _buildCommandBar(),
+
+                      const SizedBox(height: 24),
+
+                      _buildSectionTitle(
+                        'QUICK ACTIONS',
+                        'Start something',
+                      ),
+
+                      const SizedBox(height: 12),
+
+                      _buildQuickActions(context),
+
+                      const SizedBox(height: 28),
+
+                      _buildSectionTitle(
+                        'RECENT ACTIVITY',
+                        'Today',
+                      ),
+
+                      const SizedBox(height: 12),
+
+                      _RecentActivityCard(
+                        icon: Icons.medication_rounded,
+                        color: AppColors.medicine,
+                        title: 'Amlodipine 5 mg',
+                        subtitle: 'Medicine scanned',
+                        time: '10:32 AM',
+                        onTap: () => _open(
+                          context,
+                          const MedicineScreen(),
+                        ),
+                      ),
+
+                      const SizedBox(height: 10),
+
+                      _RecentActivityCard(
+                        icon: Icons.accessibility_new_rounded,
+                        color: AppColors.physio,
+                        title: 'Squat Exercise',
+                        subtitle: '10 reps • Good Form',
+                        time: '10:15 AM',
+                        onTap: () => _open(
+                          context,
+                          const PhysioScreen(),
+                        ),
+                      ),
+
+                      const SizedBox(height: 10),
+
+                      _RecentActivityCard(
+                        icon: Icons.chair_rounded,
+                        color: AppColors.environment,
+                        title: 'Chair',
+                        subtitle: 'Detected in Living Room',
+                        time: '09:50 AM',
+                        onTap: () => _open(
+                          context,
+                          const EnvironmentScreen(),
+                        ),
+                      ),
+
+                      const SizedBox(height: 26),
+
+                      _buildTipCard(),
+
+                      const SizedBox(height: 18),
+
+                      _buildOfflineStatus(),
+
+                      const SizedBox(height: 10),
+                    ]),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    ],
+  ),
+);
+}
+
+  Widget _buildTopBar(BuildContext context) {
+    return Row(
+      children: [
+        const NaviLensLogo(
+          size: 46,
+          iconSize: 27,
+        ),
+
+        const SizedBox(width: 11),
+
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'NaviLens Local',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: AppTypography.title.copyWith(
+                  color: AppColors.textPrimary,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                'Private • On-device AI',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: AppTypography.caption.copyWith(
+                  color: AppColors.textMuted,
+                ),
+              ),
+            ],
+          ),
+        ),
+
+        const SizedBox(width: 10),
+
+        _HeaderIcon(
+          icon: Icons.notifications_none_rounded,
+          semanticLabel: 'Notifications',
+          onTap: () {},
+        ),
+
+        const SizedBox(width: 6),
+
+        _HeaderIcon(
+          icon: Icons.settings_rounded,
+          semanticLabel: 'Settings',
+          onTap: () {
+            Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => const SettingsScreen(),
+              ),
+            );
+          },
+        ),
+      ],
+    );
+  }
+
+  Widget _buildGreeting() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Good morning',
+          style: AppTypography.display.copyWith(
+            fontSize: 34,
+            height: 1.1,
+          ),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          'e.g., Alex',
+          style: AppTypography.bodyLarge.copyWith(
+            color: AppColors.textSecondary,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildCommandBar() {
+    return Container(
+      height: 56,
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: AppColors.border,
+        ),
+      ),
+      child: Row(
+        children: [
+          const SizedBox(width: 16),
+
+          const Icon(
+            Icons.search_rounded,
+            color: AppColors.textMuted,
+            size: 23,
+          ),
+
+          const SizedBox(width: 11),
+
+          Expanded(
+            child: Text(
+              'What do you need help with?',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: AppTypography.body.copyWith(
+                color: AppColors.textMuted,
+              ),
+            ),
+          ),
+
+          Container(
+            margin: const EdgeInsets.only(right: 8),
+            width: 36,
+            height: 36,
+            decoration: BoxDecoration(
+              color: AppColors.primary.withValues(
+                alpha: 0.10,
+              ),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: const Icon(
+              Icons.mic_none_rounded,
+              color: AppColors.primary,
+              size: 20,
+            ),
+          ),
         ],
       ),
-      body: SafeArea(
-        child: CustomScrollView(
-          slivers: [
-            SliverPadding(
-              padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
-              sliver: SliverList(
-                delegate: SliverChildListDelegate([
-                  const SizedBox(height: AppSpacing.sm),
-                  Text('What do you need help with?', style: AppTypography.body),
-                  const SizedBox(height: AppSpacing.md),
+    );
+  }
 
-                  _FeatureCard(
-                    icon: Icons.medication_outlined,
-                    title: 'Medicine Reader',
-                    subtitle: 'Scan and understand\nmedicine labels',
-                    color: AppColors.medicine,
-                    semanticHint: 'Opens camera to scan medicine labels',
-                    onTap: () => Navigator.push(
-                      context,
-                      _slideRoute(const MedicineScreen()),
-                    ),
-                  ),
-                  const SizedBox(height: AppSpacing.md),
-
-                  _FeatureCard(
-                    icon: Icons.directions_run,
-                    title: 'Physio Coach',
-                    subtitle: 'Get real-time\nposture feedback',
-                    color: AppColors.physio,
-                    semanticHint: 'Opens camera for exercise coaching',
-                    onTap: () => Navigator.push(
-                      context,
-                      _slideRoute(const PhysioScreen()),
-                    ),
-                  ),
-                  const SizedBox(height: AppSpacing.md),
-
-                  _FeatureCard(
-                    icon: Icons.near_me_outlined,
-                    title: 'Environment\nAssistant',
-                    subtitle: 'Detect and describe\nobjects around you',
-                    color: AppColors.environment,
-                    semanticHint: 'Opens camera to identify surroundings',
-                    onTap: () => Navigator.push(
-                      context,
-                      _slideRoute(const EnvironmentScreen()),
-                    ),
-                  ),
-
-                  const SizedBox(height: AppSpacing.xl),
-                  const _OfflineBanner(),
-                  const SizedBox(height: AppSpacing.xl),
-
-                  const AppSectionHeader(title: 'MORE'),
-                  const SizedBox(height: AppSpacing.sm),
-                  LightCard(
-                    semanticsLabel: 'Open history',
-                    onTap: () => Navigator.push(
-                      context,
-                      _slideRoute(const HistoryScreen()),
-                    ),
-                    child: const _SecondaryRow(
-                      icon: Icons.history_rounded,
-                      color: AppColors.primary,
-                      title: 'History',
-                      subtitle: 'Your past scans and exercises',
-                    ),
-                  ),
-                  const SizedBox(height: AppSpacing.sm),
-                  LightCard(
-                    semanticsLabel: 'Open settings',
-                    onTap: () => Navigator.push(
-                      context,
-                      _slideRoute(const SettingsScreen()),
-                    ),
-                    child: const _SecondaryRow(
-                      icon: Icons.settings_rounded,
-                      color: AppColors.primary,
-                      title: 'Settings',
-                      subtitle: 'Voice, accessibility and more',
-                    ),
-                  ),
-                  const SizedBox(height: AppSpacing.xxl),
-                ]),
+  Widget _buildQuickActions(BuildContext context) {
+    return Column(
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: _QuickActionCard(
+                icon: Icons.medication_outlined,
+                color: AppColors.medicine,
+                title: 'Medicine',
+                subtitle: 'Read labels',
+                onTap: () => _open(
+                  context,
+                  const MedicineScreen(),
+                ),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: _QuickActionCard(
+                icon: Icons.accessibility_new_rounded,
+                color: AppColors.physio,
+                title: 'Physio',
+                subtitle: 'Coach exercise',
+                onTap: () => _open(
+                  context,
+                  const PhysioScreen(),
+                ),
               ),
             ),
           ],
         ),
+
+        const SizedBox(height: 10),
+
+        _EnvironmentActionCard(
+          onTap: () => _open(
+            context,
+            const EnvironmentScreen(),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildTipCard() {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            AppColors.primary.withValues(alpha: 0.12),
+            AppColors.medicine.withValues(alpha: 0.07),
+          ],
+        ),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: AppColors.primary.withValues(alpha: 0.16),
+        ),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: AppColors.primary.withValues(
+                alpha: 0.12,
+              ),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(
+              Icons.auto_awesome_rounded,
+              color: AppColors.primary,
+              size: 20,
+            ),
+          ),
+
+          const SizedBox(width: 12),
+
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'QUICK TIP',
+                  style: AppTypography.label.copyWith(
+                    color: AppColors.primary,
+                    letterSpacing: 1.1,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Keep medicine labels flat and well lit for clearer scanning.',
+                  style: AppTypography.body.copyWith(
+                    color: AppColors.textSecondary,
+                    height: 1.35,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
 
-  PageRouteBuilder _slideRoute(Widget page) {
-    return PageRouteBuilder(
-      pageBuilder: (_, __, ___) => page,
-      transitionsBuilder: (_, anim, __, child) => SlideTransition(
-        position: Tween<Offset>(
-          begin: const Offset(1, 0),
-          end: Offset.zero,
-        ).animate(CurvedAnimation(parent: anim, curve: Curves.easeOutCubic)),
-        child: child,
+  Widget _buildOfflineStatus() {
+    return Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: 14,
+        vertical: 12,
       ),
-      transitionDuration: const Duration(milliseconds: 300),
+      decoration: BoxDecoration(
+        color: AppColors.physio.withValues(alpha: 0.07),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: AppColors.physio.withValues(alpha: 0.16),
+        ),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 32,
+            height: 32,
+            decoration: BoxDecoration(
+              color: AppColors.physio.withValues(
+                alpha: 0.12,
+              ),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(
+              Icons.wifi_off_rounded,
+              color: AppColors.physio,
+              size: 17,
+            ),
+          ),
+
+          const SizedBox(width: 10),
+
+          Expanded(
+            child: Text(
+              'Everything is running locally on your device.',
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: AppTypography.caption.copyWith(
+                color: AppColors.textSecondary,
+                height: 1.3,
+              ),
+            ),
+          ),
+
+          const SizedBox(width: 8),
+
+          Container(
+            padding: const EdgeInsets.symmetric(
+              horizontal: 9,
+              vertical: 5,
+            ),
+            decoration: BoxDecoration(
+              color: AppColors.physio.withValues(
+                alpha: 0.12,
+              ),
+              borderRadius: BorderRadius.circular(999),
+            ),
+            child: Text(
+              'ACTIVE',
+              style: AppTypography.label.copyWith(
+                color: AppColors.physio,
+                fontSize: 9,
+                letterSpacing: 0.8,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSectionTitle(
+    String title,
+    String trailing,
+  ) {
+    return Row(
+      children: [
+        Expanded(
+          child: Text(
+            title,
+            style: AppTypography.label.copyWith(
+              color: AppColors.textMuted,
+              letterSpacing: 1.4,
+            ),
+          ),
+        ),
+        Text(
+          trailing,
+          style: AppTypography.caption.copyWith(
+            color: AppColors.textMuted,
+          ),
+        ),
+      ],
     );
   }
 }
-// ─────────────────────────────────────────────
-// Feature Card
-// ─────────────────────────────────────────────
-class _FeatureCard extends StatelessWidget {
+
+class _HeaderIcon extends StatelessWidget {
   final IconData icon;
-  final String title;
-  final String subtitle;
-  final Color color;
-  final String semanticHint;
+  final String semanticLabel;
   final VoidCallback onTap;
 
-  const _FeatureCard({
+  const _HeaderIcon({
     required this.icon,
-    required this.title,
-    required this.subtitle,
-    required this.color,
-    required this.semanticHint,
+    required this.semanticLabel,
     required this.onTap,
   });
 
@@ -172,8 +557,54 @@ class _FeatureCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return Semantics(
       button: true,
-      label: title,
-      hint: semanticHint,
+      label: semanticLabel,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(15),
+          child: Container(
+            width: 44,
+            height: 44,
+            decoration: BoxDecoration(
+              color: AppColors.surface,
+              borderRadius: BorderRadius.circular(15),
+              border: Border.all(
+                color: AppColors.border,
+              ),
+            ),
+            child: Icon(
+              icon,
+              color: AppColors.textPrimary,
+              size: 21,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _QuickActionCard extends StatelessWidget {
+  final IconData icon;
+  final Color color;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+
+  const _QuickActionCard({
+    required this.icon,
+    required this.color,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      button: true,
+      label: '$title. $subtitle',
       child: Material(
         color: Colors.transparent,
         child: InkWell(
@@ -181,57 +612,72 @@ class _FeatureCard extends StatelessWidget {
             HapticFeedback.lightImpact();
             onTap();
           },
-          borderRadius: BorderRadius.circular(AppSpacing.radiusLg),
-          splashColor: Colors.white.withValues(alpha: 0.15),
+          borderRadius: BorderRadius.circular(24),
           child: Container(
-            padding: const EdgeInsets.all(AppSpacing.lg),
+            constraints: const BoxConstraints(minHeight: 160),
+            padding: const EdgeInsets.all(20),
             decoration: BoxDecoration(
               gradient: LinearGradient(
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
                 colors: [
-                  color.withValues(alpha: 0.35),
                   color.withValues(alpha: 0.18),
+                  color.withValues(alpha: 0.04),
                 ],
               ),
-              borderRadius: BorderRadius.circular(AppSpacing.radiusLg),
-              border: Border.all(color: color.withValues(alpha: 0.35), width: 1.5),
+              borderRadius: BorderRadius.circular(24),
+              border: Border.all(
+                color: color.withValues(alpha: 0.4),
+                width: 1.5,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: color.withValues(alpha: 0.12),
+                  blurRadius: 24,
+                  offset: const Offset(0, 8),
+                ),
+              ],
             ),
-            child: Row(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
               children: [
                 Container(
-                  width: 64,
-                  height: 64,
+                  width: 52,
+                  height: 52,
                   decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.16),
-                    borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
-                  ),
-                  child: Icon(icon, color: Colors.white, size: 36),
-                ),
-                const SizedBox(width: AppSpacing.md),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(title, style: AppTypography.title),
-                      const SizedBox(height: 4),
-                      Text(
-                        subtitle,
-                        style: AppTypography.body.copyWith(
-                          color: Colors.white.withValues(alpha: 0.92),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                Container(
-                  width: 36,
-                  height: 36,
-                  decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.16),
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [
+                        color.withValues(alpha: 0.35),
+                        color.withValues(alpha: 0.1),
+                      ],
+                    ),
                     shape: BoxShape.circle,
+                    border: Border.all(
+                      color: color.withValues(alpha: 0.5),
+                    ),
                   ),
-                  child: const Icon(Icons.arrow_forward_ios, color: Colors.white, size: 16),
+                  child: Icon(icon, color: color, size: 26),
+                ),
+                const SizedBox(height: 24),
+                Text(
+                  title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppTypography.titleSmall.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  subtitle,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppTypography.caption.copyWith(
+                    color: AppColors.textSecondary,
+                  ),
                 ),
               ],
             ),
@@ -242,88 +688,236 @@ class _FeatureCard extends StatelessWidget {
   }
 }
 
-// ─────────────────────────────────────────────
-// Offline banner
-// ─────────────────────────────────────────────
-class _OfflineBanner extends StatelessWidget {
-  const _OfflineBanner();
+class _EnvironmentActionCard extends StatelessWidget {
+  final VoidCallback onTap;
 
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md, vertical: AppSpacing.sm),
-      decoration: BoxDecoration(
-        color: AppColors.physio.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
-        border: Border.all(color: AppColors.physio.withValues(alpha: 0.3)),
-      ),
-      child: const Row(
-        children: [
-          Icon(Icons.offline_bolt_rounded, color: AppColors.physio, size: 22),
-          SizedBox(width: AppSpacing.sm),
-          Expanded(
-            child: Text(
-              'Works fully offline. Your data stays on your device.',
-              style: AppTypography.body,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// ─────────────────────────────────────────────
-// Secondary row (used inside light cards)
-// ─────────────────────────────────────────────
-class _SecondaryRow extends StatelessWidget {
-  final IconData icon;
-  final Color color;
-  final String title;
-  final String subtitle;
-
-  const _SecondaryRow({
-    required this.icon,
-    required this.color,
-    required this.title,
-    required this.subtitle,
+  const _EnvironmentActionCard({
+    required this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Container(
-          width: 48,
-          height: 48,
-          decoration: BoxDecoration(
-            color: color.withValues(alpha: 0.14),
-            borderRadius: BorderRadius.circular(AppSpacing.radiusSm),
-          ),
-          child: Icon(icon, color: color, size: 24),
-        ),
-        const SizedBox(width: AppSpacing.md),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                title,
-                style: AppTypography.titleSmall.copyWith(color: const Color(0xFF1F2933)),
+    return Semantics(
+      button: true,
+      label:
+          'Environment Assistant. Detect and describe objects around you',
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: () {
+            HapticFeedback.lightImpact();
+            onTap();
+          },
+          borderRadius: BorderRadius.circular(24),
+          child: Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.centerLeft,
+                end: Alignment.centerRight,
+                colors: [
+                  AppColors.environment.withValues(alpha: 0.18),
+                  AppColors.environment.withValues(alpha: 0.04),
+                ],
               ),
-              const SizedBox(height: 2),
-              Text(
-                subtitle,
-                style: AppTypography.body.copyWith(
-                  color: const Color(0xFF52606D),
-                  fontSize: 14,
+              borderRadius: BorderRadius.circular(24),
+              border: Border.all(
+                color: AppColors.environment.withValues(alpha: 0.4),
+                width: 1.5,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: AppColors.environment.withValues(alpha: 0.12),
+                  blurRadius: 24,
+                  offset: const Offset(0, 8),
                 ),
-              ),
-            ],
+              ],
+            ),
+            child: Row(
+              children: [
+                Container(
+                  width: 56,
+                  height: 56,
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [
+                        AppColors.environment.withValues(alpha: 0.35),
+                        AppColors.environment.withValues(alpha: 0.1),
+                      ],
+                    ),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(
+                      color: AppColors.environment.withValues(alpha: 0.5),
+                    ),
+                  ),
+                  child: const Icon(
+                    Icons.login_rounded,
+                    color: AppColors.environment,
+                    size: 28,
+                  ),
+                ),
+
+                const SizedBox(width: 16),
+
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment:
+                        CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Environment Assistant',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppTypography.titleSmall.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Describe your surroundings',
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppTypography.caption.copyWith(
+                          color: AppColors.textSecondary,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
+                const SizedBox(width: 10),
+
+                Container(
+                  width: 32,
+                  height: 32,
+                  decoration: BoxDecoration(
+                    color: AppColors.environment.withValues(alpha: 0.1),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(
+                    Icons.arrow_forward_ios_rounded,
+                    color: AppColors.environment,
+                    size: 16,
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
-        const Icon(Icons.chevron_right, color: Color(0xFF9AA5B1), size: 26),
-      ],
+      ),
     );
   }
 }
+
+class _RecentActivityCard extends StatelessWidget {
+  final IconData icon;
+  final Color color;
+  final String title;
+  final String subtitle;
+  final String time;
+  final VoidCallback onTap;
+
+  const _RecentActivityCard({
+    required this.icon,
+    required this.color,
+    required this.title,
+    required this.subtitle,
+    required this.time,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      button: true,
+      label: '$title. $subtitle. $time',
+      child: Material(
+        color: Colors.white,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(20),
+          child: Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(
+                color: const Color(0xFFE7EBEF),
+              ),
+            ),
+            child: Row(
+              children: [
+                Container(
+                  width: 48,
+                  height: 48,
+                  decoration: BoxDecoration(
+                    color: color.withValues(alpha: 0.10),
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: Icon(
+                    icon,
+                    color: color,
+                    size: 23,
+                  ),
+                ),
+
+                const SizedBox(width: 13),
+
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment:
+                        CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppTypography.titleSmall.copyWith(
+                          color: const Color(0xFF17202A),
+                        ),
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        subtitle,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppTypography.caption.copyWith(
+                          color: const Color(0xFF66727E),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
+                const SizedBox(width: 8),
+
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Text(
+                      time,
+                      style: AppTypography.caption.copyWith(
+                        color: const Color(0xFF8B96A1),
+                        fontSize: 11,
+                      ),
+                    ),
+                    const SizedBox(height: 5),
+                    const Icon(
+                      Icons.chevron_right_rounded,
+                      color: Color(0xFF9CA6AF),
+                      size: 23,
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+

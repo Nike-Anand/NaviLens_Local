@@ -1,17 +1,22 @@
 import 'dart:io';
-import 'package:camera/camera.dart';
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
-import 'package:navilens_local/camera/camera_view.dart';
-import 'package:navilens_local/ai/ocr_service.dart';
-import 'package:navilens_local/ai/models.dart';
+import 'package:image_picker/image_picker.dart';
+
 import 'package:navilens_local/accessibility/feedback_engine.dart';
+import 'package:navilens_local/ai/models.dart';
+import 'package:navilens_local/ai/ocr_service.dart';
+import 'package:navilens_local/camera/camera_view.dart';
 import 'package:navilens_local/main.dart';
-import 'package:navilens_local/ui/theme/app_colors.dart';
-import 'package:navilens_local/ui/theme/app_typography.dart';
-import 'package:navilens_local/ui/theme/app_spacing.dart';
-import 'package:navilens_local/ui/components/app_components.dart';
+import 'package:navilens_local/data/history_db.dart';
+
+import '../components/app_components.dart';
+import '../theme/app_colors.dart';
+import '../theme/app_spacing.dart';
+import '../theme/app_typography.dart';
 
 class MedicineScreen extends StatefulWidget {
   const MedicineScreen({super.key});
@@ -22,8 +27,13 @@ class MedicineScreen extends StatefulWidget {
 
 class _MedicineScreenState extends State<MedicineScreen> {
   final OcrService _ocrService = OcrService();
+  final ImagePicker _imagePicker = ImagePicker();
+  final GlobalKey<CameraViewState> _cameraKey = GlobalKey<CameraViewState>();
+
   final ValueNotifier<bool> _flashOn = ValueNotifier<bool>(false);
+
   MedicineInfo? _currentMedicine;
+
   bool _isProcessing = false;
   bool _showResult = false;
 
@@ -34,110 +44,138 @@ class _MedicineScreenState extends State<MedicineScreen> {
     super.dispose();
   }
 
-  void _processCameraImage(CameraImage image) async {
-    if (_isProcessing) return;
-    _isProcessing = true;
+  bool get _supportsOnDeviceOcr =>
+      !kIsWeb && (Platform.isAndroid || Platform.isIOS);
 
-    final inputImage = _inputImageFromCameraImage(image);
-    if (inputImage == null) {
-      _isProcessing = false;
+  void _showMessage(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  Future<void> _captureImage() async {
+    if (_isProcessing) return;
+    if (!_supportsOnDeviceOcr) {
+      _showMessage('Medicine reading is supported on Android and iOS.');
       return;
     }
 
-    final result = await _ocrService.analyzeImage(inputImage);
-    if (mounted && result != null) {
-      setState(() {
-        _currentMedicine = result;
-        _showResult = true;
-      });
-    }
-
-    _isProcessing = false;
-  }
-
-  InputImage? _inputImageFromCameraImage(CameraImage image) {
-    if (cameras.isEmpty) return null;
-    final camera = cameras.first;
-    final sensorOrientation = camera.sensorOrientation;
-
-    InputImageRotation? rotation;
-    if (Platform.isIOS) {
-      rotation = InputImageRotationValue.fromRawValue(sensorOrientation);
-    } else if (Platform.isAndroid) {
-      var rotationCompensation = _orientations[DeviceOrientation.portraitUp];
-      if (rotationCompensation == null) return null;
-      if (camera.lensDirection == CameraLensDirection.front) {
-        rotationCompensation = (sensorOrientation + rotationCompensation) % 360;
-      } else {
-        rotationCompensation = (sensorOrientation - rotationCompensation + 360) % 360;
+    setState(() => _isProcessing = true);
+    try {
+      final photo = await _cameraKey.currentState?.capturePhoto();
+      if (photo == null) {
+        _showMessage(
+            'Could not capture a photo. Check camera access and try again.');
+        return;
       }
-      rotation = InputImageRotationValue.fromRawValue(rotationCompensation);
+      await _readImage(photo.path);
+    } catch (e) {
+      debugPrint('Medicine capture error: $e');
+      _showMessage('Could not capture the medicine label. Please try again.');
+    } finally {
+      if (mounted) setState(() => _isProcessing = false);
     }
-
-    if (rotation == null) return null;
-
-    final format = InputImageFormatValue.fromRawValue(image.format.raw);
-    if (format == null ||
-        (Platform.isAndroid &&
-            format != InputImageFormat.nv21 &&
-            format != InputImageFormat.yuv420)) return null;
-
-    if (image.planes.isEmpty) return null;
-
-    return InputImage.fromBytes(
-      bytes: image.planes[0].bytes,
-      metadata: InputImageMetadata(
-        size: Size(image.width.toDouble(), image.height.toDouble()),
-        rotation: rotation,
-        format: format,
-        bytesPerRow: image.planes[0].bytesPerRow,
-      ),
-    );
   }
 
-  final _orientations = {
-    DeviceOrientation.portraitUp: 0,
-    DeviceOrientation.landscapeLeft: 90,
-    DeviceOrientation.portraitDown: 180,
-    DeviceOrientation.landscapeRight: 270,
-  };
+  Future<void> _selectImage() async {
+    if (_isProcessing) return;
+    if (!_supportsOnDeviceOcr) {
+      _showMessage('Medicine reading is supported on Android and iOS.');
+      return;
+    }
+
+    try {
+      final image = await _imagePicker.pickImage(source: ImageSource.gallery);
+      if (image != null) await _processImage(image.path);
+    } catch (e) {
+      debugPrint('Medicine image selection error: $e');
+      _showMessage('Could not open the photo library. Please try again.');
+    }
+  }
+
+  Future<void> _processImage(String path) async {
+    if (_isProcessing) return;
+    setState(() => _isProcessing = true);
+    try {
+      await _readImage(path);
+    } finally {
+      if (mounted) setState(() => _isProcessing = false);
+    }
+  }
+
+  Future<void> _readImage(String path) async {
+    final result =
+        await _ocrService.analyzeImage(InputImage.fromFilePath(path));
+    if (!mounted) return;
+    if (result == null) {
+      _showMessage(
+          'No readable medicine label found. Move closer and try again.');
+      return;
+    }
+
+    setState(() {
+      _currentMedicine = result;
+      _showResult = true;
+    });
+    try {
+      await HistoryDB.instance.logMedicineScan(result);
+    } catch (e) {
+      debugPrint('Medicine scan history error: $e');
+    }
+  }
 
   void _speak() {
-    if (_currentMedicine == null) return;
-    final m = _currentMedicine!;
+    final medicine = _currentMedicine;
+
+    if (medicine == null) {
+      return;
+    }
+
     final parts = [
-      if (m.name != null) m.name!,
-      if (m.strength != null) 'Strength: ${m.strength}',
-      if (m.expiryDate != null) 'Expiry: ${m.expiryDate}',
-      m.dosageInstruction ?? '',
+      if (medicine.name != null) medicine.name!,
+      if (medicine.strength != null) 'Strength: ${medicine.strength}',
+      if (medicine.expiryDate != null) 'Expiry: ${medicine.expiryDate}',
+      medicine.dosageInstruction ?? '',
       'Always follow your prescription and healthcare professional\'s instructions.',
-    ].where((s) => s.isNotEmpty).join('. ');
+    ].where((value) => value.isNotEmpty).join('. ');
+
     FeedbackEngine.speak(parts);
     HapticFeedback.lightImpact();
   }
 
   void _scanAgain() {
     HapticFeedback.selectionClick();
+
+    FeedbackEngine.stopSpeech();
+
     setState(() {
       _showResult = false;
       _currentMedicine = null;
     });
-    FeedbackEngine.stopSpeech();
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.black,
-      body: SafeArea(
-        child: Stack(
+    final topInset = MediaQuery.paddingOf(context).top;
+    final bottomInset = MediaQuery.paddingOf(context).bottom;
+
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: const SystemUiOverlayStyle(
+        statusBarColor: Colors.transparent,
+        systemNavigationBarColor: Colors.transparent,
+        statusBarIconBrightness: Brightness.light,
+        systemNavigationBarIconBrightness: Brightness.light,
+      ),
+      child: Scaffold(
+        backgroundColor: Colors.black,
+        body: Stack(
           fit: StackFit.expand,
           children: [
-            // Camera layer
             cameras.isNotEmpty
                 ? CameraView(
+                    key: _cameraKey,
                     cameras: cameras,
-                    onImage: _processCameraImage,
                     flashControl: _flashOn,
                   )
                 : const AppErrorState(
@@ -145,55 +183,67 @@ class _MedicineScreenState extends State<MedicineScreen> {
                     message:
                         'NaviLens uses your camera to read labels.\nPlease grant camera permission in Settings.',
                   ),
-
-            // Top bar
             Positioned(
-              top: 0, left: 0, right: 0,
-              child: _TopBar(title: 'Medicine Reader', accentColor: AppColors.medicine),
+              top: 0,
+              left: 0,
+              right: 0,
+              child: _TopBar(
+                title: 'Medicine Reader',
+                accentColor: AppColors.medicine,
+                topInset: topInset,
+              ),
             ),
-
-            // Scan overlay (hidden when result shows)
             if (!_showResult)
               const CameraScanOverlay(
-                hint: 'Hold the label steady for a clearer scan',
+                hint: 'Frame the label, then tap to capture',
               ),
-
-            // Processing indicator
             if (_isProcessing && !_showResult)
-              const Positioned(
-                bottom: 120,
-                left: 0, right: 0,
-                child: Center(
-                  child: AppLoadingState(message: 'Reading medicine label...'),
+              Positioned(
+                left: 20,
+                right: 20,
+                bottom: bottomInset + 124,
+                child: const Center(
+                  child: AppLoadingState(
+                    message: 'Reading medicine label...',
+                  ),
                 ),
               ),
-
-            // Bottom controls (gallery / scan / flash) — hidden while result shows
             if (!_showResult)
-              Positioned(
-                left: 0, right: 0, bottom: 0,
+              Align(
+                alignment: Alignment.bottomCenter,
                 child: _MedicineControls(
                   flashOn: _flashOn,
-                  onGallery: () {
-                    HapticFeedback.selectionClick();
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('NaviLens is fully offline — scanning happens through the camera.'),
-                        behavior: SnackBarBehavior.floating,
-                      ),
-                    );
-                  },
+                  bottomInset: bottomInset,
+                  isProcessing: _isProcessing,
+                  onCapture: _captureImage,
+                  onGallery: _selectImage,
                 ),
               ),
-
-            // Result panel
             if (_showResult && _currentMedicine != null)
-              Positioned(
-                left: 0, right: 0, bottom: 0,
-                child: _MedicineResultPanel(
-                  medicine: _currentMedicine!,
-                  onListen: _speak,
-                  onScanAgain: _scanAgain,
+              Align(
+                alignment: Alignment.bottomCenter,
+                child: DraggableScrollableSheet(
+                  initialChildSize: 0.72,
+                  minChildSize: 0.48,
+                  maxChildSize: 0.94,
+                  snap: true,
+                  snapSizes: const [
+                    0.72,
+                    0.94,
+                  ],
+                  expand: false,
+                  builder: (
+                    context,
+                    scrollController,
+                  ) {
+                    return _MedicineResultPanel(
+                      medicine: _currentMedicine!,
+                      scrollController: scrollController,
+                      onListen: _speak,
+                      onScanAgain: _scanAgain,
+                      bottomInset: bottomInset,
+                    );
+                  },
                 ),
               ),
           ],
@@ -203,57 +253,99 @@ class _MedicineScreenState extends State<MedicineScreen> {
   }
 }
 
-// ─────────────────────────────────────────────
-// Top Bar
-// ─────────────────────────────────────────────
 class _TopBar extends StatelessWidget {
   final String title;
   final Color accentColor;
+  final double topInset;
 
-  const _TopBar({required this.title, required this.accentColor});
+  const _TopBar({
+    required this.title,
+    required this.accentColor,
+    required this.topInset,
+  });
 
   @override
   Widget build(BuildContext context) {
     return Container(
+      padding: EdgeInsets.fromLTRB(
+        6,
+        topInset + 4,
+        8,
+        18,
+      ),
       decoration: BoxDecoration(
         gradient: LinearGradient(
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
-          colors: [Colors.black.withValues(alpha: 0.85), Colors.transparent],
+          colors: [
+            Colors.black.withValues(alpha: 0.84),
+            Colors.black.withValues(alpha: 0.20),
+            Colors.transparent,
+          ],
         ),
-      ),
-      padding: const EdgeInsets.symmetric(
-        horizontal: AppSpacing.sm,
-        vertical: AppSpacing.sm,
       ),
       child: Row(
         children: [
-          Semantics(
-            button: true,
-            label: 'Go back',
-            child: IconButton(
-              icon: const Icon(Icons.arrow_back_ios_new, color: Colors.white, size: 22),
-              onPressed: () => Navigator.of(context).pop(),
+          IconButton(
+            tooltip: 'Go back',
+            onPressed: () => Navigator.of(context).pop(),
+            icon: const Icon(
+              Icons.arrow_back_ios_new_rounded,
+              color: Colors.white,
+              size: 22,
             ),
           ),
-          const SizedBox(width: AppSpacing.xs),
+          const SizedBox(width: 4),
           Expanded(
-            child: Text(title, style: AppTypography.titleSmall),
-          ),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm, vertical: 4),
-            decoration: BoxDecoration(
-              color: accentColor.withValues(alpha: 0.2),
-              borderRadius: BorderRadius.circular(AppSpacing.radiusFull),
-              border: Border.all(color: accentColor.withValues(alpha: 0.4)),
+            child: Text(
+              title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: AppTypography.titleSmall.copyWith(
+                color: Colors.white,
+              ),
             ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(Icons.circle, color: accentColor, size: 8),
-                const SizedBox(width: 5),
-                Text('LIVE', style: AppTypography.label.copyWith(color: accentColor, fontSize: 11)),
-              ],
+          ),
+          const SizedBox(width: 8),
+          Flexible(
+            child: Container(
+              padding: const EdgeInsets.symmetric(
+                horizontal: 10,
+                vertical: 6,
+              ),
+              decoration: BoxDecoration(
+                color: accentColor.withValues(alpha: 0.17),
+                borderRadius: BorderRadius.circular(999),
+                border: Border.all(
+                  color: accentColor.withValues(alpha: 0.36),
+                ),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 7,
+                    height: 7,
+                    decoration: BoxDecoration(
+                      color: accentColor,
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                  const SizedBox(width: 5),
+                  Flexible(
+                    child: Text(
+                      'LIVE',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppTypography.label.copyWith(
+                        color: accentColor,
+                        fontSize: 10,
+                        letterSpacing: 1,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         ],
@@ -262,133 +354,174 @@ class _TopBar extends StatelessWidget {
   }
 }
 
-// ─────────────────────────────────────────────
-// Medicine Result Panel
-// ─────────────────────────────────────────────
 class _MedicineResultPanel extends StatelessWidget {
   final MedicineInfo medicine;
+  final ScrollController scrollController;
   final VoidCallback onListen;
   final VoidCallback onScanAgain;
+  final double bottomInset;
 
   const _MedicineResultPanel({
     required this.medicine,
+    required this.scrollController,
     required this.onListen,
     required this.onScanAgain,
+    required this.bottomInset,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      decoration: const BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(AppSpacing.radiusLg)),
-        border: Border(top: BorderSide(color: AppColors.border, width: 1)),
+    return Material(
+      color: AppColors.surface,
+      elevation: 16,
+      shadowColor: Colors.black.withValues(alpha: 0.45),
+      borderRadius: const BorderRadius.vertical(
+        top: Radius.circular(28),
       ),
-      padding: const EdgeInsets.fromLTRB(
-        AppSpacing.lg, AppSpacing.lg, AppSpacing.lg, AppSpacing.xl,
-      ),
+      clipBehavior: Clip.antiAlias,
       child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // Handle
-          Center(
-            child: Container(
-              width: 40, height: 4,
-              decoration: BoxDecoration(
-                color: AppColors.border,
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-          ),
-          const SizedBox(height: AppSpacing.md),
-
-          // Medicine name
-          Semantics(
-            header: true,
-            child: Text(
-              medicine.name ?? 'Unknown Medicine',
-              style: AppTypography.headline.copyWith(color: AppColors.textPrimary),
-            ),
-          ),
-
-          const SizedBox(height: AppSpacing.md),
-
-          // Info rows
-          if (medicine.strength != null)
-            _InfoRow(Icons.science_outlined, 'Strength', medicine.strength!, AppColors.medicine),
-          if (medicine.expiryDate != null) ...[
-            const SizedBox(height: AppSpacing.sm),
-            _InfoRow(Icons.calendar_today_outlined, 'Expiry Date', medicine.expiryDate!, AppColors.warning),
-          ],
-          if (medicine.dosageInstruction != null) ...[
-            const SizedBox(height: AppSpacing.sm),
-            _InfoRow(Icons.info_outline, 'Instructions', medicine.dosageInstruction!, AppColors.primary),
-          ],
-
-          const SizedBox(height: AppSpacing.md),
-
-          // Safety card
+          const SizedBox(height: 10),
           Container(
-            padding: const EdgeInsets.all(AppSpacing.md),
+            width: 42,
+            height: 4,
             decoration: BoxDecoration(
-              color: AppColors.warning.withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
-              border: Border.all(color: AppColors.warning.withValues(alpha: 0.3)),
+              color: AppColors.border,
+              borderRadius: BorderRadius.circular(99),
             ),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
+          ),
+          Expanded(
+            child: ListView(
+              controller: scrollController,
+              physics: const BouncingScrollPhysics(),
+              padding: EdgeInsets.fromLTRB(
+                AppSpacing.lg,
+                18,
+                AppSpacing.lg,
+                bottomInset + 24,
+              ),
               children: [
-                const Icon(Icons.warning_amber_rounded, color: AppColors.warning, size: 20),
-                const SizedBox(width: AppSpacing.sm),
-                const Expanded(
-                  child: Text(
-                    'Safety Notice\n\nInformation extracted from the package. Always follow your prescription and healthcare professional\'s instructions.',
-                    style: AppTypography.body,
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: Text(
+                        medicine.name ?? 'Unknown Medicine',
+                        style: AppTypography.headline.copyWith(
+                          color: AppColors.textPrimary,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 20),
+                if (medicine.strength != null)
+                  _InfoRow(
+                    Icons.science_outlined,
+                    'Strength',
+                    medicine.strength!,
+                    AppColors.medicine,
                   ),
+                if (medicine.expiryDate != null) ...[
+                  const SizedBox(height: 12),
+                  _InfoRow(
+                    Icons.calendar_today_outlined,
+                    'Expiry Date',
+                    medicine.expiryDate!,
+                    AppColors.warning,
+                  ),
+                ],
+                if (medicine.dosageInstruction != null) ...[
+                  const SizedBox(height: 12),
+                  _InfoRow(
+                    Icons.info_outline_rounded,
+                    'Instructions',
+                    medicine.dosageInstruction!,
+                    AppColors.primary,
+                  ),
+                ],
+                const SizedBox(height: 20),
+                _SafetyNotice(),
+                const SizedBox(height: 20),
+                LayoutBuilder(
+                  builder: (context, constraints) {
+                    final compact = constraints.maxWidth < 390;
+
+                    if (compact) {
+                      return Column(
+                        children: [
+                          SizedBox(
+                            width: double.infinity,
+                            child: ElevatedButton.icon(
+                              onPressed: onListen,
+                              icon: const Icon(
+                                Icons.volume_up_rounded,
+                              ),
+                              label: const Text('Listen'),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: AppColors.medicine,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                          SizedBox(
+                            width: double.infinity,
+                            child: OutlinedButton.icon(
+                              onPressed: onScanAgain,
+                              icon: const Icon(
+                                Icons.refresh_rounded,
+                              ),
+                              label: const Text('Scan Again'),
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: AppColors.medicine,
+                                side: const BorderSide(
+                                  color: AppColors.medicine,
+                                  width: 1.5,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      );
+                    }
+
+                    return Row(
+                      children: [
+                        Expanded(
+                          child: ElevatedButton.icon(
+                            onPressed: onListen,
+                            icon: const Icon(
+                              Icons.volume_up_rounded,
+                            ),
+                            label: const Text('Listen'),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: AppColors.medicine,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: onScanAgain,
+                            icon: const Icon(
+                              Icons.refresh_rounded,
+                            ),
+                            label: const Text('Scan Again'),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: AppColors.medicine,
+                              side: const BorderSide(
+                                color: AppColors.medicine,
+                                width: 1.5,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    );
+                  },
                 ),
               ],
             ),
-          ),
-
-          const SizedBox(height: AppSpacing.lg),
-
-          // Action buttons
-          Row(
-            children: [
-              Expanded(
-                child: Semantics(
-                  button: true,
-                  label: 'Listen to medicine information',
-                  child: ElevatedButton.icon(
-                    onPressed: onListen,
-                    icon: const Icon(Icons.volume_up_rounded),
-                    label: const Text('Listen'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: AppColors.medicine,
-                      padding: const EdgeInsets.symmetric(vertical: AppSpacing.md),
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(width: AppSpacing.md),
-              Expanded(
-                child: Semantics(
-                  button: true,
-                  label: 'Scan a different label',
-                  child: OutlinedButton.icon(
-                    onPressed: onScanAgain,
-                    icon: const Icon(Icons.refresh_rounded),
-                    label: const Text('Scan Again'),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: AppColors.medicine,
-                      side: const BorderSide(color: AppColors.medicine, width: 2),
-                      padding: const EdgeInsets.symmetric(vertical: AppSpacing.md),
-                    ),
-                  ),
-                ),
-              ),
-            ],
           ),
         ],
       ),
@@ -402,22 +535,119 @@ class _InfoRow extends StatelessWidget {
   final String value;
   final Color color;
 
-  const _InfoRow(this.icon, this.label, this.value, this.color);
+  const _InfoRow(
+    this.icon,
+    this.label,
+    this.value,
+    this.color,
+  );
 
   @override
   Widget build(BuildContext context) {
     return Semantics(
       label: '$label: $value',
+      child: Container(
+        padding: const EdgeInsets.symmetric(
+          horizontal: 4,
+          vertical: 4,
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              width: 34,
+              height: 34,
+              decoration: BoxDecoration(
+                color: color.withValues(alpha: 0.10),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(
+                icon,
+                color: color,
+                size: 18,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Flexible(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppTypography.caption.copyWith(
+                      color: AppColors.textMuted,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    value,
+                    maxLines: 5,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppTypography.titleSmall.copyWith(
+                      color: AppColors.textPrimary,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SafetyNotice extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: AppColors.warning.withValues(alpha: 0.09),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: AppColors.warning.withValues(alpha: 0.24),
+        ),
+      ),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(icon, color: color, size: 18),
-          const SizedBox(width: AppSpacing.sm),
-          Text(
-            '$label:  ',
-            style: AppTypography.caption.copyWith(color: AppColors.textMuted),
+          Container(
+            width: 34,
+            height: 34,
+            decoration: BoxDecoration(
+              color: AppColors.warning.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: const Icon(
+              Icons.warning_amber_rounded,
+              color: AppColors.warning,
+              size: 19,
+            ),
           ),
+          const SizedBox(width: 12),
           Expanded(
-            child: Text(value, style: AppTypography.titleSmall.copyWith(color: AppColors.textPrimary)),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Safety Notice',
+                  style: AppTypography.titleSmall.copyWith(
+                    color: AppColors.warning,
+                  ),
+                ),
+                const SizedBox(height: 5),
+                Text(
+                  'Information extracted from the package. Always follow your prescription and healthcare professional\'s instructions.',
+                  style: AppTypography.body.copyWith(
+                    color: AppColors.textSecondary,
+                    height: 1.4,
+                  ),
+                ),
+              ],
+            ),
           ),
         ],
       ),
@@ -425,17 +655,19 @@ class _InfoRow extends StatelessWidget {
   }
 }
 
-// ─────────────────────────────────────────────
-// Medicine Camera Controls — matches the reference
-// bottom bar: gallery / scan / flash.
-// ─────────────────────────────────────────────
 class _MedicineControls extends StatelessWidget {
   final ValueNotifier<bool> flashOn;
   final VoidCallback onGallery;
+  final VoidCallback onCapture;
+  final bool isProcessing;
+  final double bottomInset;
 
   const _MedicineControls({
     required this.flashOn,
     required this.onGallery,
+    required this.onCapture,
+    required this.isProcessing,
+    required this.bottomInset,
   });
 
   void _toggleFlash() {
@@ -449,21 +681,29 @@ class _MedicineControls extends StatelessWidget {
       valueListenable: flashOn,
       builder: (context, isFlashOn, _) {
         return Container(
-          padding: const EdgeInsets.fromLTRB(
-            AppSpacing.xl, AppSpacing.sm, AppSpacing.xl, AppSpacing.lg,
+          margin: EdgeInsets.fromLTRB(16, 0, 16, bottomInset + 24),
+          padding: const EdgeInsets.symmetric(
+            horizontal: 24,
+            vertical: 24,
           ),
           decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.bottomCenter,
-              end: Alignment.topCenter,
-              colors: [
-                Colors.black.withValues(alpha: 0.75),
-                Colors.transparent,
-              ],
+            color: Colors.white.withValues(alpha: 0.1),
+            borderRadius: BorderRadius.circular(32),
+            border: Border.all(
+              color: Colors.white.withValues(alpha: 0.2),
+              width: 1,
             ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.4),
+                blurRadius: 40,
+                offset: const Offset(0, 10),
+              ),
+            ],
           ),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               _ControlIconButton(
                 icon: Icons.photo_library_outlined,
@@ -474,25 +714,43 @@ class _MedicineControls extends StatelessWidget {
                 button: true,
                 label: 'Scan medicine label',
                 child: GestureDetector(
-                  onTap: () => HapticFeedback.mediumImpact(),
+                  onTap: isProcessing
+                      ? null
+                      : () {
+                          HapticFeedback.mediumImpact();
+                          onCapture();
+                        },
                   child: Container(
-                    width: 72,
-                    height: 72,
+                    width: 76,
+                    height: 76,
                     decoration: BoxDecoration(
+                      color: AppColors.medicine.withValues(alpha: 0.8),
                       shape: BoxShape.circle,
-                      color: Colors.white,
                       border: Border.all(
-                        color: AppColors.medicine,
-                        width: 5,
+                        color: Colors.white,
+                        width: 4,
                       ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: AppColors.medicine.withValues(alpha: 0.6),
+                          blurRadius: 20,
+                          spreadRadius: 4,
+                        ),
+                      ],
                     ),
-                    child: const Center(
-                      child: Icon(
-                        Icons.medication_rounded,
-                        color: AppColors.medicine,
-                        size: 30,
-                      ),
-                    ),
+                    child: isProcessing
+                        ? const Padding(
+                            padding: EdgeInsets.all(22),
+                            child: CircularProgressIndicator(
+                              strokeWidth: 3,
+                              color: Colors.white,
+                            ),
+                          )
+                        : const Icon(
+                            Icons.camera_alt_rounded,
+                            color: Colors.white,
+                            size: 32,
+                          ),
                   ),
                 ),
               ),
@@ -530,28 +788,44 @@ class _ControlIconButton extends StatelessWidget {
     return Semantics(
       button: true,
       label: label,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
-        child: Padding(
-          padding: const EdgeInsets.all(AppSpacing.sm),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                icon,
-                color: active ? AppColors.medicine : Colors.white,
-                size: 28,
-              ),
-              const SizedBox(height: 4),
-              Text(
-                label,
-                style: AppTypography.caption.copyWith(
-                  color: Colors.white,
-                  fontSize: 11,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(16),
+          child: Padding(
+            padding: const EdgeInsets.all(8),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 48,
+                  height: 48,
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.26),
+                    shape: BoxShape.circle,
+                    border: Border.all(
+                      color: Colors.white.withValues(alpha: 0.14),
+                    ),
+                  ),
+                  child: Icon(
+                    icon,
+                    color: active ? AppColors.medicine : Colors.white,
+                    size: 25,
+                  ),
                 ),
-              ),
-            ],
+                const SizedBox(height: 5),
+                Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppTypography.caption.copyWith(
+                    color: Colors.white,
+                    fontSize: 11,
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),
